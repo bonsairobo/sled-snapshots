@@ -24,8 +24,8 @@ pub fn create_snapshot_tree(
     create_empty_snapshot(forest, delta_map, None)
 }
 
-/// Applies `deltas` to `data_tree`, returning the new current version. The old state of `data_tree` is preserved in a new
-/// snapshot at `current_version`.
+/// Applies `deltas` to `data_tree`, returning the new current version. The old state of `data_tree` is preserved in a
+/// snapshot at `current_version`. You can restore the state of **any** snapshot version with `restore_snapshot`.
 ///
 /// ```text
 ///   BEFORE            AFTER
