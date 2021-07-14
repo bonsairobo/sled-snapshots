@@ -13,8 +13,8 @@ each version.
 ## Example
 
 ```rust
-use sled::{Db, Transactional, IVec};
-use sled_snapshots::{*, transactions::*};
+use sled::{Db, IVec, Transactional};
+use sled_snapshots::{transactions::*, *};
 use tempdir::TempDir;
 
 let tmp = TempDir::new("sled-snapshots-demo").unwrap();
@@ -22,57 +22,53 @@ let db = sled::open(&tmp).unwrap();
 
 // The actual application data.
 let data_tree = db.open_tree("data").unwrap();
+data_tree.insert(b"key0", b"value0").unwrap();
+
 // Metadata for managing snapshots.
 let (forest, delta_map) = open_snapshot_forest(&db, "snaps").unwrap();
 
-let (root_version, new_version) = (&data_tree, &*forest, &*delta_map)
+let (v0, v1) = (&data_tree, &*forest, &*delta_map)
     .transaction(|(data_tree, forest, delta_map)| {
         let forest = TransactionalVersionForest(forest);
         let delta_map = TransactionalDeltaMap(delta_map);
 
         // We need a new snapshot tree specifically for `data_map`.
-        let root_version = create_snapshot_tree(forest, delta_map)?;
+        let v0 = create_snapshot_tree(forest, delta_map)?;
 
-        // All updates to `data_tree` (after the root version) must be done by applying `Delta`s via `create_snapshot`.
+        // All updates to `data_tree` (after v0) must be done by applying `Delta`s via `create_snapshot`.
         let deltas = [
+            Delta::Remove(IVec::from(b"key0")),
             Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1")),
-            Delta::Insert(IVec::from(b"key2"), IVec::from(b"value2")),
         ];
-        let new_version =
-            create_snapshot(root_version, forest, delta_map, data_tree, &deltas)?;
+        let v1 = create_snapshot(v0, forest, delta_map, data_tree, &deltas)?;
 
-        Ok((root_version, new_version))
+        Ok((v0, v1))
     })
     .unwrap();
 
 // Deltas were applied.
 let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>().unwrap();
-assert_eq!(
-    kvs,
-    vec![
-        (IVec::from(b"key1"), IVec::from(b"value1")),
-        (IVec::from(b"key2"), IVec::from(b"value2")),
-    ]
-);
+assert_eq!(kvs, vec![(IVec::from(b"key1"), IVec::from(b"value1"))]);
 
 // And we now have two snapshots/versions.
-assert_eq!(forest.collect_versions(), Ok(vec![root_version, new_version]));
+assert_eq!(forest.collect_versions(), Ok(vec![v0, v1]));
 
-// Restore the state of the root snapshot.
+// Restore the state of v0.
 (&data_tree, &*forest, &*delta_map)
     .transaction(|(data_tree, forest, delta_map)| {
         restore_snapshot(
-            new_version,
-            root_version,
+            v1,
+            v0,
             TransactionalVersionForest(forest),
             TransactionalDeltaMap(delta_map),
-            data_tree
+            data_tree,
         )
     })
     .unwrap();
 
-// Deltas were reversed.
-assert!(data_tree.is_empty());
+// Back to the state at v0.
+let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>().unwrap();
+assert_eq!(kvs, vec![(IVec::from(b"key0"), IVec::from(b"value0"))]);
 ```
 
 License: MIT
