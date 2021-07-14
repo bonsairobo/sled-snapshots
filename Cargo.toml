@@ -1,0 +1,13 @@
+[package]
+name = "sled-snapshots"
+version = "0.1.0"
+edition = "2018"
+description = "Efficient snapshots of sled trees."
+license = "MIT"
+
+[dependencies]
+itertools = "0.10"
+sled = { git = "https://github.com/spacejam/sled", rev = "a0d51f2" }
+
+[dev-dependencies]
+tempdir = "0.3"
