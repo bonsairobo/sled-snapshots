@@ -86,6 +86,8 @@ pub use version_forest::*;
 
 /// Opens two `sled::Tree`s in `db` which represent a "snapshot forest."
 ///
+/// This doesn't actually insert anything into the `sled::Tree`s. It's just for convenience and a little extra type safety.
+///
 /// The `VersionForest` will be called `"${name}-versions"`, and it stores the version forest, i.e. a set of versions where each
 /// version is a node in some tree. The `DeltaMap` will be called `"${name}-deltas"`, and it stores a set of deltas for each
 /// version.
