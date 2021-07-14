@@ -1,4 +1,5 @@
-//! Make versioned updates to a [sled::Tree] called "snapshots." Restore the state of any snapshot.
+//! Make versioned updates to a [sled::Tree], leaving behind incremental backups called "snapshots." Restore the state of any
+//! snapshot.
 //!
 //! All functionality is provided by a persistent data structure called a "snapshot forest". All operations on the forest are
 //! transactional. See the [transactions] module for the most common operations on a snapshot forest.
