@@ -53,7 +53,7 @@ impl<'a> TransactionalVersionForest<'a> {
         version: u64,
     ) -> Result<Option<RawVersionNode<IVec>>, UnabortableTransactionError> {
         self.get(version.to_be_bytes())
-            .map(|result| result.map(|ivec| RawVersionNode::new(ivec)))
+            .map(|result| result.map(RawVersionNode::new))
     }
 
     pub(crate) fn create_version(

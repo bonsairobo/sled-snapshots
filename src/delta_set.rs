@@ -32,7 +32,7 @@ where
 
     pub fn iter_deltas_into_ivecs(&self) -> impl '_ + Iterator<Item = Delta<IVec>> {
         self.iter_deltas()
-            .map(|raw| Delta::from(&raw).map(|bytes| IVec::from(bytes.as_ref())))
+            .map(|raw| Delta::from(&raw).map(|bytes| IVec::from(*bytes)))
     }
 }
 

@@ -35,7 +35,7 @@ impl<'a> TransactionalDeltaMap<'a> {
         version: u64,
     ) -> Result<Option<RawDeltaSet<IVec>>, UnabortableTransactionError> {
         self.get(version.to_be_bytes())
-            .map(|result| result.map(|ivec| RawDeltaSet::new(ivec)))
+            .map(|result| result.map(RawDeltaSet::new))
     }
 
     pub(crate) fn remove_version(
@@ -43,7 +43,7 @@ impl<'a> TransactionalDeltaMap<'a> {
         version: u64,
     ) -> Result<Option<RawDeltaSet<IVec>>, UnabortableTransactionError> {
         self.remove(&version.to_be_bytes())
-            .map(|result| result.map(|ivec| RawDeltaSet::new(ivec)))
+            .map(|result| result.map(RawDeltaSet::new))
     }
 
     /// Returns `true` iff `version` is the (unique) current version in its tree.
