@@ -19,9 +19,8 @@ use sled::{
 /// If `sled` runs out of IDs.
 pub fn create_snapshot_tree(
     forest: TransactionalVersionForest,
-    delta_map: TransactionalDeltaMap,
 ) -> ConflictableTransactionResult<u64> {
-    create_empty_snapshot(forest, delta_map, None)
+    forest.create_version(None)
 }
 
 /// Applies `deltas` to `data_tree`, returning the new current version. The old state of `data_tree` is preserved in a
@@ -69,17 +68,7 @@ pub fn create_snapshot(
     apply_deltas(deltas.iter().cloned(), data_tree, &mut reverse_deltas)?;
     delta_map.write_deltas(current_version, reverse_deltas.iter())?;
 
-    create_empty_snapshot(forest, delta_map, Some(current_version))
-}
-
-fn create_empty_snapshot(
-    forest: TransactionalVersionForest,
-    delta_map: TransactionalDeltaMap,
-    parent_version: Option<u64>,
-) -> ConflictableTransactionResult<u64> {
-    let new_version = forest.create_version(parent_version)?;
-    delta_map.insert(&new_version.to_be_bytes(), &[])?; // No deltas implies current version.
-    Ok(new_version)
+    forest.create_version(Some(current_version))
 }
 
 /// Given a `data_tree` at `current_version`, restores `data_tree` to the state of the `target_version` snapshot.
@@ -275,20 +264,15 @@ mod test {
     use tempdir::TempDir;
 
     #[test]
-    fn initial_snapshot_tree_has_only_root_version() {
+    fn initial_snapshot_tree_has_only_v0() {
         let fixture = Fixture::open();
-        let (forest, delta_map) = open_snapshot_forest(&fixture.db, "snaps").unwrap();
+        let (forest, _delta_map) = open_snapshot_forest(&fixture.db, "snaps").unwrap();
 
-        let root_version = (&*forest, &*delta_map)
-            .transaction(|(forest, delta_map)| {
-                create_snapshot_tree(
-                    TransactionalVersionForest(forest),
-                    TransactionalDeltaMap(delta_map),
-                )
-            })
+        let v0 = forest
+            .transaction(|forest| create_snapshot_tree(TransactionalVersionForest(forest)))
             .unwrap();
 
-        assert_eq!(forest.collect_versions(), Ok(vec![root_version]));
+        assert_eq!(forest.collect_versions(), Ok(vec![v0]));
     }
 
     #[test]
@@ -301,11 +285,10 @@ mod test {
             (&data_tree, &*forest, &*delta_map).transaction(|(data_tree, forest, delta_map)| {
                 let forest = TransactionalVersionForest(forest);
                 let delta_map = TransactionalDeltaMap(delta_map);
-                let root_version = create_snapshot_tree(forest, delta_map)?;
+                let v0 = create_snapshot_tree(forest)?;
 
                 let deltas = [Delta::Insert(IVec::from(b"key"), IVec::from(b"value"))];
-                let new_version =
-                    create_snapshot(root_version, forest, delta_map, data_tree, &deltas)?;
+                let new_version = create_snapshot(v0, forest, delta_map, data_tree, &deltas)?;
 
                 delete_snapshot(new_version, forest, delta_map)
             });
@@ -319,20 +302,19 @@ mod test {
         let (forest, delta_map) = open_snapshot_forest(&fixture.db, "snaps").unwrap();
         let data_tree = fixture.db.open_tree("data").unwrap();
 
-        let (root_version, new_version) = (&data_tree, &*forest, &*delta_map)
+        let (v0, v1) = (&data_tree, &*forest, &*delta_map)
             .transaction(|(data_tree, forest, delta_map)| {
                 let forest = TransactionalVersionForest(forest);
                 let delta_map = TransactionalDeltaMap(delta_map);
-                let root_version = create_snapshot_tree(forest, delta_map)?;
+                let v0 = create_snapshot_tree(forest)?;
 
                 let deltas = [
                     Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1")),
                     Delta::Insert(IVec::from(b"key2"), IVec::from(b"value2")),
                 ];
-                let new_version =
-                    create_snapshot(root_version, forest, delta_map, data_tree, &deltas)?;
+                let v1 = create_snapshot(v0, forest, delta_map, data_tree, &deltas)?;
 
-                Ok((root_version, new_version))
+                Ok((v0, v1))
             })
             .unwrap();
 
@@ -350,7 +332,7 @@ mod test {
             .transaction(|(data_tree, forest, delta_map)| {
                 let forest = TransactionalVersionForest(forest);
                 let delta_map = TransactionalDeltaMap(delta_map);
-                restore_snapshot(new_version, root_version, forest, delta_map, data_tree)
+                restore_snapshot(v1, v0, forest, delta_map, data_tree)
             })
             .unwrap();
 
@@ -367,25 +349,25 @@ mod test {
         let data_tree = fixture.db.open_tree("data").unwrap();
         data_tree.insert(b"key0", b"value0").unwrap();
 
-        let (root_version, v2) = (&data_tree, &*forest, &*delta_map)
+        let (v0, v2) = (&data_tree, &*forest, &*delta_map)
             .transaction(|(data_tree, forest, delta_map)| {
                 let forest = TransactionalVersionForest(forest);
                 let delta_map = TransactionalDeltaMap(delta_map);
-                let root_version = create_snapshot_tree(forest, delta_map)?;
+                let v0 = create_snapshot_tree(forest)?;
 
                 let v1_deltas = [Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1"))];
-                let v1 = create_snapshot(root_version, forest, delta_map, data_tree, &v1_deltas)?;
+                let v1 = create_snapshot(v0, forest, delta_map, data_tree, &v1_deltas)?;
 
                 let v2_deltas = [Delta::Insert(IVec::from(b"key2"), IVec::from(b"value2"))];
                 let v2 = create_snapshot(v1, forest, delta_map, data_tree, &v2_deltas)?;
 
                 delete_snapshot(v1, forest, delta_map)?;
 
-                Ok((root_version, v2))
+                Ok((v0, v2))
             })
             .unwrap();
 
-        // Expect state at v3.
+        // Expect state at v2.
         let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(
             kvs,
@@ -396,17 +378,36 @@ mod test {
             ]
         );
 
+        // Restore v0.
         (&data_tree, &*forest, &*delta_map)
             .transaction(|(data_tree, forest, delta_map)| {
                 let forest = TransactionalVersionForest(forest);
                 let delta_map = TransactionalDeltaMap(delta_map);
-                restore_snapshot(v2, root_version, forest, delta_map, data_tree)
+                restore_snapshot(v2, v0, forest, delta_map, data_tree)
             })
             .unwrap();
-
-        // Expect state at root version.
+        // Expect state at v0.
         let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>().unwrap();
-        assert_eq!(kvs, vec![(IVec::from(b"key0"), IVec::from(b"value0")),]);
+        assert_eq!(kvs, vec![(IVec::from(b"key0"), IVec::from(b"value0"))]);
+
+        // Restore v2.
+        (&data_tree, &*forest, &*delta_map)
+            .transaction(|(data_tree, forest, delta_map)| {
+                let forest = TransactionalVersionForest(forest);
+                let delta_map = TransactionalDeltaMap(delta_map);
+                restore_snapshot(v0, v2, forest, delta_map, data_tree)
+            })
+            .unwrap();
+        // Expect state at v2.
+        let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(
+            kvs,
+            vec![
+                (IVec::from(b"key0"), IVec::from(b"value0")),
+                (IVec::from(b"key1"), IVec::from(b"value1")),
+                (IVec::from(b"key2"), IVec::from(b"value2")),
+            ]
+        );
     }
 
     struct Fixture {

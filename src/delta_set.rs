@@ -19,10 +19,6 @@ where
         Self { bytes }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty()
-    }
-
     pub fn iter_deltas(&self) -> RawDeltaIter<'_> {
         RawDeltaIter {
             bytes: &self.bytes,

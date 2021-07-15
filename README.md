@@ -34,7 +34,7 @@ let (v0, v1) = (&data_tree, &*forest, &*delta_map)
         let delta_map = TransactionalDeltaMap(delta_map);
 
         // We need a new snapshot tree specifically for `data_map`.
-        let v0 = create_snapshot_tree(forest, delta_map)?;
+        let v0 = create_snapshot_tree(forest)?;
 
         // All updates to `data_tree` (after v0) must be done by applying `Delta`s via `create_snapshot`.
         let deltas = [

@@ -48,12 +48,7 @@ impl<'a> TransactionalDeltaMap<'a> {
 
     /// Returns `true` iff `version` is the (unique) current version in its tree.
     pub fn is_current_version(&self, version: u64) -> ConflictableTransactionResult<bool> {
-        if let Some(current_deltas) = self.get_version(version)? {
-            Ok(current_deltas.is_empty())
-        } else {
-            // Version doesn't even exist.
-            Ok(false)
-        }
+        Ok(self.get_version(version)?.is_none())
     }
 
     pub(crate) fn write_deltas<'b, B: 'b>(
