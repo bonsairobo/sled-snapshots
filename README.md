@@ -36,7 +36,8 @@ let (v0, v1) = (&data_tree, &*forest, &*delta_map)
         // We need a new snapshot tree specifically for `data_map`.
         let v0 = create_snapshot_tree(forest)?;
 
-        // All updates to `data_tree` (after v0) must be done by applying `Delta`s via `create_snapshot`.
+        // All updates to `data_tree` (after v0) must be done by applying `Delta`s
+        // via `create_snapshot`, `modify_current_leaf_snapshot`, or `modify_leaf_snapshot`.
         let deltas = [
             Delta::Remove(IVec::from(b"key0")),
             Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1")),

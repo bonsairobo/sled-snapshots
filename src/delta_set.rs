@@ -8,7 +8,7 @@ use std::ops::Deref;
 /// The on-disk encoding is a sequence of [RawDelta](crate::raw_delta::RawDelta).
 #[derive(Clone)]
 pub struct RawDeltaSet<B> {
-    bytes: B,
+    pub bytes: B,
 }
 
 impl<B> RawDeltaSet<B>

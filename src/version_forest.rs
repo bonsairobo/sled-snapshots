@@ -200,6 +200,22 @@ impl<'a> TransactionalVersionForest<'a> {
         path.extend_from_slice(further_slice);
         Ok(VersionPath::PathExists(path))
     }
+
+    pub fn is_leaf(&self, version: u64) -> ConflictableTransactionResult<bool> {
+        if let Some(node) = self.get_version(version)? {
+            Ok(node.num_children() == 0)
+        } else {
+            abort(())
+        }
+    }
+
+    pub fn parent_of(&self, version: u64) -> ConflictableTransactionResult<Option<u64>> {
+        if let Some(node) = self.get_version(version)? {
+            Ok(node.parent())
+        } else {
+            abort(())
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

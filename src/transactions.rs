@@ -54,6 +54,7 @@ pub fn create_snapshot(
     data_tree: &TransactionalTree,
     deltas: &[Delta<IVec>],
 ) -> ConflictableTransactionResult<u64> {
+    // TODO: remove this restriction, it should be possible to make an empty version and use modify_current_leaf_snapshot
     assert!(
         !deltas.is_empty(),
         "Cannot create new version without deltas"
@@ -66,9 +67,44 @@ pub fn create_snapshot(
 
     let mut reverse_deltas = Vec::with_capacity(deltas.len());
     apply_deltas(deltas.iter().cloned(), data_tree, &mut reverse_deltas)?;
-    delta_map.write_deltas(current_version, reverse_deltas.iter())?;
+    delta_map.write_deltas(current_version, reverse_deltas.iter().rev())?;
 
     forest.create_version(Some(current_version))
+}
+
+/// Add deltas to a non-current snapshot. The snapshot must be a leaf in the tree in order to preserve the state of other
+/// snapshots.
+pub fn modify_leaf_snapshot(
+    version: u64,
+    forest: TransactionalVersionForest,
+    delta_map: TransactionalDeltaMap,
+    deltas: &[Delta<IVec>],
+) -> ConflictableTransactionResult<()> {
+    if !forest.is_leaf(version)? || delta_map.is_current_version(version)? {
+        return abort(());
+    }
+    delta_map.append_deltas(version, deltas)
+}
+
+/// Add deltas to a current snapshot. The snapshot must be a leaf in the tree in order to preserve the state of other snapshots.
+pub fn modify_current_leaf_snapshot(
+    current_version: u64,
+    forest: TransactionalVersionForest,
+    delta_map: TransactionalDeltaMap,
+    data_tree: &TransactionalTree,
+    deltas: &[Delta<IVec>],
+) -> ConflictableTransactionResult<()> {
+    if !forest.is_leaf(current_version)? || !delta_map.is_current_version(current_version)? {
+        return abort(());
+    }
+    if let Some(parent) = forest.parent_of(current_version)? {
+        let mut reverse_deltas = Vec::new();
+        apply_deltas(deltas.iter().cloned(), data_tree, &mut reverse_deltas)?;
+        reverse_deltas.reverse();
+        delta_map.prepend_deltas(parent, &reverse_deltas)?;
+    }
+
+    Ok(())
 }
 
 /// Given a `data_tree` at `current_version`, restores `data_tree` to the state of the `target_version` snapshot.
@@ -142,10 +178,12 @@ fn nudge_version(
         data_tree,
         &mut reverse_deltas,
     )?;
-    delta_map.write_deltas(current_version, reverse_deltas.iter())
+    delta_map.write_deltas(current_version, reverse_deltas.iter().rev())
 }
 
-// Applies `deltas` to `data_tree` and adds the corresponding reverse deltas to `reverse_deltas`.
+/// Applies `deltas` to `data_tree` and adds the corresponding reverse deltas to `reverse_deltas`. Note that this only reverses
+/// each individual delta, but the order of the deltas stays the same. You may need to reverse the order of the deltas depending
+/// on the situation.
 fn apply_deltas(
     deltas: impl Iterator<Item = Delta<IVec>>,
     data_tree: &TransactionalTree,
@@ -224,13 +262,13 @@ pub fn delete_snapshot(
     if current_is_ancestor {
         // Move the deltas to every child.
         for &child in rm_node.children.iter() {
-            delta_map.prepend_deltas(child, deltas.clone())?;
+            delta_map.prepend_encoded_deltas(child, deltas.bytes.clone())?;
         }
     } else {
         // Move the deltas to the parent.
-        delta_map.prepend_deltas(
+        delta_map.prepend_encoded_deltas(
             rm_node.parent.expect("Deleting a root is forbidden"),
-            deltas,
+            deltas.bytes,
         )?;
     }
 
@@ -297,7 +335,7 @@ mod test {
     }
 
     #[test]
-    fn restore_snapshot_reverses_deltas() {
+    fn restore_snapshot_reverses_noncommutative_deltas_same_key() {
         let fixture = Fixture::open();
         let (forest, delta_map) = open_snapshot_forest(&fixture.db, "snaps").unwrap();
         let data_tree = fixture.db.open_tree("data").unwrap();
@@ -310,7 +348,7 @@ mod test {
 
                 let deltas = [
                     Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1")),
-                    Delta::Insert(IVec::from(b"key2"), IVec::from(b"value2")),
+                    Delta::Remove(IVec::from(b"key1")),
                 ];
                 let v1 = create_snapshot(v0, forest, delta_map, data_tree, &deltas)?;
 
@@ -319,14 +357,7 @@ mod test {
             .unwrap();
 
         // Deltas were applied.
-        let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>().unwrap();
-        assert_eq!(
-            kvs,
-            vec![
-                (IVec::from(b"key1"), IVec::from(b"value1")),
-                (IVec::from(b"key2"), IVec::from(b"value2")),
-            ]
-        );
+        assert!(data_tree.is_empty());
 
         (&data_tree, &*forest, &*delta_map)
             .transaction(|(data_tree, forest, delta_map)| {

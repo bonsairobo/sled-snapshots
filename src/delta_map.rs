@@ -1,7 +1,9 @@
 use crate::{delta::Delta, delta_set::RawDeltaSet};
 
 use sled::{
-    transaction::{ConflictableTransactionResult, TransactionalTree, UnabortableTransactionError},
+    transaction::{
+        abort, ConflictableTransactionResult, TransactionalTree, UnabortableTransactionError,
+    },
     IVec, Tree,
 };
 use std::ops::Deref;
@@ -67,25 +69,57 @@ impl<'a> TransactionalDeltaMap<'a> {
         Ok(())
     }
 
-    pub(crate) fn prepend_deltas<B>(
+    pub(crate) fn append_deltas<B>(
         &self,
         version: u64,
-        deltas: RawDeltaSet<B>,
+        new_deltas: &[Delta<B>],
     ) -> ConflictableTransactionResult<()>
     where
         B: Deref<Target = [u8]>,
     {
+        if let Some(version_deltas) = self.get_version(version)? {
+            // SPACE: for each key, we could compact duplicate deltas
+            let mut delta_bytes = version_deltas.bytes.to_vec();
+            for raw_delta in new_deltas {
+                raw_delta.encode(&mut delta_bytes).unwrap();
+            }
+            self.insert(&version.to_be_bytes(), delta_bytes)?;
+
+            Ok(())
+        } else {
+            abort(())
+        }
+    }
+
+    pub(crate) fn prepend_deltas<B>(
+        &self,
+        version: u64,
+        new_deltas: &[Delta<B>],
+    ) -> ConflictableTransactionResult<()>
+    where
+        B: Deref<Target = [u8]>,
+    {
+        let mut new_delta_bytes = Vec::new();
+        for delta in new_deltas {
+            delta.encode(&mut new_delta_bytes).unwrap();
+        }
+        self.prepend_encoded_deltas(version, IVec::from(new_delta_bytes))
+    }
+
+    /// # Panics
+    /// If `version` is missing. Internal users already followed a pointer to get to this version.
+    pub(crate) fn prepend_encoded_deltas(
+        &self,
+        version: u64,
+        new_deltas: IVec,
+    ) -> ConflictableTransactionResult<()> {
         let version_deltas = self
             .get_version(version)?
             .expect("Inconsistent forest: followed pointer to missing version");
 
-        // PERF: for each key, we could compact duplicate deltas
-        let deltas_in_order = deltas.iter_deltas().chain(version_deltas.iter_deltas());
-
-        let mut delta_bytes = Vec::new();
-        for raw_delta in deltas_in_order {
-            Delta::from(&raw_delta).encode(&mut delta_bytes).unwrap();
-        }
+        // SPACE: for each key, we could compact duplicate deltas
+        let mut delta_bytes = new_deltas.to_vec();
+        delta_bytes.extend_from_slice(&version_deltas.bytes);
         self.insert(&version.to_be_bytes(), delta_bytes)?;
 
         Ok(())
