@@ -59,9 +59,7 @@ let (v0, v1) = (&data_tree, &*forest, &*delta_map)
             Delta::Remove(IVec::from(b"key0")),
             Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1")),
         ];
-        let make_v1_current = true;
-        let v1 = create_child_snapshot(v0, make_v1_current, forest, delta_map)?;
-        modify_current_leaf_snapshot(v1, forest, delta_map, data_tree, &deltas)?;
+        let v1 = create_child_snapshot_with_deltas(v0, forest, delta_map, data_tree, &deltas)?;
 
         Ok((v0, v1))
     })

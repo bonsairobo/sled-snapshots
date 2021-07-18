@@ -109,6 +109,27 @@ pub fn modify_current_leaf_snapshot(
     Ok(())
 }
 
+/// This is equivalent to calling `create_child_snapshot` followed by `modify_current_leaf_snapshot`.
+pub fn create_child_snapshot_with_deltas(
+    current_version: u64,
+    forest: TransactionalVersionForest,
+    delta_map: TransactionalDeltaMap,
+    data_tree: &TransactionalTree,
+    deltas: &[Delta<IVec>],
+) -> ConflictableTransactionResult<u64> {
+    if !delta_map.is_current_version(current_version)? {
+        return abort(());
+    }
+
+    let child_version = forest.create_version(Some(current_version))?;
+
+    let mut reverse_deltas = Vec::new();
+    apply_deltas(deltas.iter().cloned(), data_tree, &mut reverse_deltas)?;
+    delta_map.write_deltas(current_version, reverse_deltas.iter().rev())?;
+
+    Ok(child_version)
+}
+
 /// Given a `data_tree` at `current_version`, restores `data_tree` to the state of the `target_version` snapshot.
 ///
 /// Aborts the transaction if:
@@ -328,8 +349,8 @@ mod test {
                 let v0 = create_snapshot_tree(forest)?;
 
                 let deltas = [Delta::Insert(IVec::from(b"key"), IVec::from(b"value"))];
-                let v1 = create_child_snapshot(v0, true, forest, delta_map)?;
-                modify_current_leaf_snapshot(v1, forest, delta_map, data_tree, &deltas)?;
+                let v1 =
+                    create_child_snapshot_with_deltas(v0, forest, delta_map, data_tree, &deltas)?;
 
                 delete_snapshot(v1, forest, delta_map)
             });
@@ -353,8 +374,8 @@ mod test {
                     Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1")),
                     Delta::Remove(IVec::from(b"key1")),
                 ];
-                let v1 = create_child_snapshot(v0, true, forest, delta_map)?;
-                modify_current_leaf_snapshot(v1, forest, delta_map, data_tree, &deltas)?;
+                let v1 =
+                    create_child_snapshot_with_deltas(v0, forest, delta_map, data_tree, &deltas)?;
 
                 Ok((v0, v1))
             })
@@ -527,12 +548,14 @@ mod test {
                     let v0 = create_snapshot_tree(forest)?;
 
                     let v1_deltas = [Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1"))];
-                    let v1 = create_child_snapshot(v0, true, forest, delta_map)?;
-                    modify_current_leaf_snapshot(v1, forest, delta_map, data_tree, &v1_deltas)?;
+                    let v1 = create_child_snapshot_with_deltas(
+                        v0, forest, delta_map, data_tree, &v1_deltas,
+                    )?;
 
                     let v2_deltas = [Delta::Insert(IVec::from(b"key2"), IVec::from(b"value2"))];
-                    let v2 = create_child_snapshot(v1, true, forest, delta_map)?;
-                    modify_current_leaf_snapshot(v2, forest, delta_map, data_tree, &v2_deltas)?;
+                    let v2 = create_child_snapshot_with_deltas(
+                        v1, forest, delta_map, data_tree, &v2_deltas,
+                    )?;
 
                     Ok((v0, v1, v2))
                 })
