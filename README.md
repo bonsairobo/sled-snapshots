@@ -35,14 +35,14 @@ use sled::{IVec, Transactional};
 use sled_snapshots::{transactions::*, *};
 
 let config = sled::Config::new().temporary(true);
-let db = config.open().unwrap();
+let db = config.open()?;
 
 // The actual application data.
-let data_tree = db.open_tree("data").unwrap();
-data_tree.insert(b"key0", b"value0").unwrap();
+let data_tree = db.open_tree("data")?;
+data_tree.insert(b"key0", b"value0")?;
 
 // Metadata for managing snapshots.
-let (forest, delta_map) = open_snapshot_forest(&db, "snaps").unwrap();
+let (forest, delta_map) = open_snapshot_forest(&db, "snaps")?;
 
 let (v0, v1) = (&data_tree, &*forest, &*delta_map)
     .transaction(|(data_tree, forest, delta_map)| {
@@ -61,11 +61,10 @@ let (v0, v1) = (&data_tree, &*forest, &*delta_map)
         let v1 = create_child_snapshot_with_deltas(v0, forest, delta_map, data_tree, &deltas)?;
 
         Ok((v0, v1))
-    })
-    .unwrap();
+    })?;
 
 // Deltas were applied.
-let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>().unwrap();
+let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>()?;
 assert_eq!(kvs, vec![(IVec::from(b"key1"), IVec::from(b"value1"))]);
 
 // And we now have two snapshots/versions.
@@ -81,11 +80,10 @@ assert_eq!(forest.collect_versions(), Ok(vec![v0, v1]));
             TransactionalDeltaMap(delta_map),
             data_tree,
         )
-    })
-    .unwrap();
+    })?;
 
 // Back to the state at v0.
-let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>().unwrap();
+let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>()?;
 assert_eq!(kvs, vec![(IVec::from(b"key0"), IVec::from(b"value0"))]);
 ```
 
