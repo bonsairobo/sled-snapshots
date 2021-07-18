@@ -5,7 +5,8 @@ use crate::{
 
 use sled::{
     transaction::{
-        abort, ConflictableTransactionResult, TransactionalTree, UnabortableTransactionError,
+        abort, ConflictableTransactionResult, TransactionResult, TransactionalTree,
+        UnabortableTransactionError,
     },
     IVec, Tree,
 };
@@ -32,6 +33,21 @@ impl VersionForest {
     /// Collects all versions into a `Vec`.
     pub fn collect_versions(&self) -> sled::Result<Vec<u64>> {
         self.iter_versions().collect()
+    }
+
+    /// Collects all root versions into a `Vec`.
+    pub fn collect_root_versions(&self) -> TransactionResult<Vec<u64>> {
+        let mut root_versions = Vec::new();
+        for v in self.iter_versions() {
+            let v = v?;
+            if self
+                .transaction(|t| TransactionalVersionForest(t).parent_of(v))?
+                .is_none()
+            {
+                root_versions.push(v);
+            }
+        }
+        Ok(root_versions)
     }
 }
 
