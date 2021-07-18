@@ -36,11 +36,9 @@
 //! let config = sled::Config::new().temporary(true);
 //! let db = config.open()?;
 //!
-//! // The actual application data.
 //! let data_tree = db.open_tree("data")?;
 //! data_tree.insert(b"key0", b"value0")?;
 //!
-//! // Metadata for managing snapshots.
 //! let (forest, delta_map) = open_snapshot_forest(&db, "snaps")?;
 //!
 //! let (v0, v1) = (&data_tree, &*forest, &*delta_map)
@@ -51,8 +49,6 @@
 //!         // We need a new snapshot tree specifically for `data_map`.
 //!         let v0 = create_snapshot_tree(forest)?;
 //!
-//!         // All updates to `data_tree` (after v0) must be done by applying `Delta`s
-//!         // via `create_snapshot`, `modify_current_leaf_snapshot`, or `modify_leaf_snapshot`.
 //!         let deltas = [
 //!             Delta::Remove(IVec::from(b"key0")),
 //!             Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1")),
