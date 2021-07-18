@@ -17,7 +17,7 @@
 //! current version, create a child snapshot with [create_child_snapshot](crate::transactions::create_child_snapshot).
 //!
 //! All operations on the forest are transactional. See the [transactions] module for all supported operations on a snapshot
-//! forest.
+//! forest. Note that none of these operations will flush for you!
 //!
 //! # Implementation
 //!
