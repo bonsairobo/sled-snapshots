@@ -23,57 +23,45 @@ pub fn create_snapshot_tree(
     forest.create_version(None)
 }
 
-/// Applies `deltas` to `data_tree`, returning the new current version. The old state of `data_tree` is preserved in a
-/// snapshot at `current_version`. You can restore the state of **any** snapshot version with `restore_snapshot`.
+/// Creates a child of `parent_version` and returns the version. The new snapshot is identical to the parent, i.e. there are no
+/// deltas yet.
 ///
-/// ```text
-///   BEFORE            AFTER
+/// This freezes the parent snapshot so no further changes can be made to it, and the corresponding data tree can always be
+/// restored to that state until the snapshot is deleted.
 ///
-///     v1           v1 -----> v2
-///      ^            ^         ^
-///   current     snapshot    current
-/// ```
+/// For convenience, if you set `make_current = true`, then the new snapshot will be made the current version. This only works
+/// if `parent_version` is already the current version, otherwise the transaction is aborted.
 ///
-/// If `current_version` is not actually a current version (as tracked by the containing snapshot tree), then the transaction is
-/// aborted.
+/// If `parent_version` does not exist, then the transaction is aborted.
 ///
 /// # Panics
-/// - If `deltas` is empty. A snapshot tree must uphold the invariant that only the current version has no deltas.
-/// - If `current_version` is `NULL_VERSION` or `sled` runs out of IDs.
-///
-/// # Implementation Details
-///
-/// This involves a single transaction which:
-/// 1. Replaces data in `data_tree` with the key-value pairs from `deltas`, remembering any old values.
-/// 2. Writes the old values into the previously empty delta set for `current_version`.
-/// 3. Creates a new empty version node as a child of `current_version`.
-pub fn create_snapshot(
-    current_version: u64,
+/// If `sled` runs out of IDs.
+pub fn create_child_snapshot(
+    parent_version: u64,
+    make_current: bool,
     forest: TransactionalVersionForest,
     delta_map: TransactionalDeltaMap,
-    data_tree: &TransactionalTree,
-    deltas: &[Delta<IVec>],
 ) -> ConflictableTransactionResult<u64> {
-    // TODO: remove this restriction, it should be possible to make an empty version and use modify_current_leaf_snapshot
-    assert!(
-        !deltas.is_empty(),
-        "Cannot create new version without deltas"
-    );
-
-    // Make sure this is actually the current version.
-    if !delta_map.is_current_version(current_version)? {
+    if make_current && !delta_map.is_current_version(parent_version)? {
         return abort(());
     }
 
-    let mut reverse_deltas = Vec::with_capacity(deltas.len());
-    apply_deltas(deltas.iter().cloned(), data_tree, &mut reverse_deltas)?;
-    delta_map.write_deltas(current_version, reverse_deltas.iter().rev())?;
+    let child_version = forest.create_version(Some(parent_version))?;
 
-    forest.create_version(Some(current_version))
+    if make_current {
+        delta_map.insert(&parent_version.to_be_bytes(), &[])?;
+    } else {
+        delta_map.insert(&child_version.to_be_bytes(), &[])?;
+    }
+
+    Ok(child_version)
 }
 
-/// Add deltas to a non-current snapshot. The snapshot must be a leaf in the tree in order to preserve the state of other
-/// snapshots.
+/// Append deltas to a non-current leaf snapshot.
+///
+/// The snapshot must be a leaf in the tree in order to preserve the state of other snapshots. The snapshot must not be current
+/// because then the data tree would get out of sync. If `version` is the current version or it is not a leaf, then the
+/// transaction is aborted.
 pub fn modify_leaf_snapshot(
     version: u64,
     forest: TransactionalVersionForest,
@@ -86,7 +74,21 @@ pub fn modify_leaf_snapshot(
     delta_map.append_deltas(version, deltas)
 }
 
-/// Add deltas to a current snapshot. The snapshot must be a leaf in the tree in order to preserve the state of other snapshots.
+/// Applies `deltas` directly to `data_tree` at the current version.
+///
+/// The current version must be a leaf in the tree in order to preserve the state of other snapshots. If `current_version` is
+/// not a leaf or it is not actually a current version (as tracked by the containing snapshot tree), then the transaction is
+/// aborted.
+///
+/// # Panics
+/// - If `current_version` is `NULL_VERSION` or `sled` runs out of IDs.
+///
+/// # Implementation Details
+///
+/// This involves a single transaction which:
+/// 1. Replaces data in `data_tree` with the key-value pairs from `deltas`, remembering any old values.
+/// 2. Writes the old values into the previously empty delta set for `current_version`.
+/// 3. Creates a new empty version node as a child of `current_version`.
 pub fn modify_current_leaf_snapshot(
     current_version: u64,
     forest: TransactionalVersionForest,
@@ -109,7 +111,7 @@ pub fn modify_current_leaf_snapshot(
 
 /// Given a `data_tree` at `current_version`, restores `data_tree` to the state of the `target_version` snapshot.
 ///
-/// Aborts the transaction of:
+/// Aborts the transaction if:
 /// - `current_version` is not actually the current version (as tracked by the snapshot trees)
 /// - `current_version` does not exist
 /// - `target_version` does not exist
@@ -136,7 +138,7 @@ pub fn modify_current_leaf_snapshot(
 /// 1. Pops all deltas from the snapshot at `B`.
 /// 2. Applies those deltas to `data_tree`, keeping the old values as reverse deltas.
 /// 3. Inserts the reverse deltas from `data_tree` into the previously empty snapshot at `A`.
-pub fn restore_snapshot(
+pub fn set_current_version(
     current_version: u64,
     target_version: u64,
     forest: TransactionalVersionForest,
@@ -326,16 +328,17 @@ mod test {
                 let v0 = create_snapshot_tree(forest)?;
 
                 let deltas = [Delta::Insert(IVec::from(b"key"), IVec::from(b"value"))];
-                let new_version = create_snapshot(v0, forest, delta_map, data_tree, &deltas)?;
+                let v1 = create_child_snapshot(v0, true, forest, delta_map)?;
+                modify_current_leaf_snapshot(v1, forest, delta_map, data_tree, &deltas)?;
 
-                delete_snapshot(new_version, forest, delta_map)
+                delete_snapshot(v1, forest, delta_map)
             });
 
         assert_eq!(result, Err(TransactionError::Abort(())));
     }
 
     #[test]
-    fn restore_snapshot_reverses_noncommutative_deltas_same_key() {
+    fn set_current_version_reverses_noncommutative_deltas_same_key() {
         let fixture = Fixture::open();
         let (forest, delta_map) = open_snapshot_forest(&fixture.db, "snaps").unwrap();
         let data_tree = fixture.db.open_tree("data").unwrap();
@@ -350,7 +353,8 @@ mod test {
                     Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1")),
                     Delta::Remove(IVec::from(b"key1")),
                 ];
-                let v1 = create_snapshot(v0, forest, delta_map, data_tree, &deltas)?;
+                let v1 = create_child_snapshot(v0, true, forest, delta_map)?;
+                modify_current_leaf_snapshot(v1, forest, delta_map, data_tree, &deltas)?;
 
                 Ok((v0, v1))
             })
@@ -363,7 +367,7 @@ mod test {
             .transaction(|(data_tree, forest, delta_map)| {
                 let forest = TransactionalVersionForest(forest);
                 let delta_map = TransactionalDeltaMap(delta_map);
-                restore_snapshot(v1, v0, forest, delta_map, data_tree)
+                set_current_version(v1, v0, forest, delta_map, data_tree)
             })
             .unwrap();
 
@@ -436,7 +440,7 @@ mod test {
                 let forest = TransactionalVersionForest(forest);
                 let delta_map = TransactionalDeltaMap(delta_map);
 
-                restore_snapshot(v2, v0, forest, delta_map, data_tree)?;
+                set_current_version(v2, v0, forest, delta_map, data_tree)?;
 
                 delete_snapshot(v1, forest, delta_map)
             })
@@ -480,7 +484,7 @@ mod test {
             .transaction(|(data_tree, forest, delta_map)| {
                 let forest = TransactionalVersionForest(forest);
                 let delta_map = TransactionalDeltaMap(delta_map);
-                restore_snapshot(
+                set_current_version(
                     current_version,
                     target_version,
                     forest,
@@ -523,10 +527,12 @@ mod test {
                     let v0 = create_snapshot_tree(forest)?;
 
                     let v1_deltas = [Delta::Insert(IVec::from(b"key1"), IVec::from(b"value1"))];
-                    let v1 = create_snapshot(v0, forest, delta_map, data_tree, &v1_deltas)?;
+                    let v1 = create_child_snapshot(v0, true, forest, delta_map)?;
+                    modify_current_leaf_snapshot(v1, forest, delta_map, data_tree, &v1_deltas)?;
 
                     let v2_deltas = [Delta::Insert(IVec::from(b"key2"), IVec::from(b"value2"))];
-                    let v2 = create_snapshot(v1, forest, delta_map, data_tree, &v2_deltas)?;
+                    let v2 = create_child_snapshot(v1, true, forest, delta_map)?;
+                    modify_current_leaf_snapshot(v2, forest, delta_map, data_tree, &v2_deltas)?;
 
                     Ok((v0, v1, v2))
                 })
