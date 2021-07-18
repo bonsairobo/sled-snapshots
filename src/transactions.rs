@@ -322,7 +322,6 @@ mod test {
     use crate::{open_snapshot_forest, DeltaMap, VersionForest};
 
     use sled::{transaction::TransactionError, Transactional};
-    use tempdir::TempDir;
 
     #[test]
     fn initial_snapshot_tree_has_only_v0() {
@@ -522,16 +521,14 @@ mod test {
     }
 
     struct Fixture {
-        _tmp: TempDir, // Just here to own the TempDir so it isn't dropped until after the test.
         pub db: sled::Db,
     }
 
     impl Fixture {
         pub fn open() -> Self {
-            let tmp = TempDir::new("sled-snapshots-test").unwrap();
-            let db = sled::open(&tmp).unwrap();
-
-            Self { _tmp: tmp, db }
+            let config = sled::Config::new().temporary(true);
+            let db = config.open().unwrap();
+            Self { db }
         }
 
         fn create_three_snapshots(&self) -> (u64, u64, u64) {

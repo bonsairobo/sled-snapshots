@@ -251,7 +251,6 @@ mod test {
     use super::*;
 
     use sled::transaction::TransactionError;
-    use tempdir::TempDir;
 
     #[test]
     fn delete_root_version_aborts() {
@@ -406,16 +405,14 @@ mod test {
     }
 
     struct Fixture {
-        _tmp: TempDir, // Just here to own the TempDir so it isn't dropped until after the test.
         pub db: sled::Db,
     }
 
     impl Fixture {
         pub fn open() -> Self {
-            let tmp = TempDir::new("sled-snapshots-test").unwrap();
-            let db = sled::open(&tmp).unwrap();
-
-            Self { _tmp: tmp, db }
+            let config = sled::Config::new().temporary(true);
+            let db = config.open().unwrap();
+            Self { db }
         }
 
         pub fn open_version_forest(&self) -> VersionForest {

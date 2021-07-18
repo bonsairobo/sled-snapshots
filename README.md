@@ -31,12 +31,11 @@ each version.
 ## Example
 
 ```rust
-use sled::{Db, IVec, Transactional};
+use sled::{IVec, Transactional};
 use sled_snapshots::{transactions::*, *};
-use tempdir::TempDir;
 
-let tmp = TempDir::new("sled-snapshots-demo").unwrap();
-let db = sled::open(&tmp).unwrap();
+let config = sled::Config::new().temporary(true);
+let db = config.open().unwrap();
 
 // The actual application data.
 let data_tree = db.open_tree("data").unwrap();
