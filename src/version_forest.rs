@@ -35,7 +35,7 @@ impl VersionForest {
     }
 }
 
-/// Same as [VersionForest], but used in transactions.
+/// Same as [VersionForest] but used in transactions.
 #[derive(Clone, Copy)]
 pub struct TransactionalVersionForest<'a>(pub &'a TransactionalTree);
 

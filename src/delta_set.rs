@@ -1,6 +1,5 @@
-use crate::delta::{Delta, RawDelta};
+use crate::delta::RawDelta;
 
-use sled::IVec;
 use std::ops::Deref;
 
 /// A wrapper around a byte slice used for decoding a set of `Delta`s.
@@ -18,17 +17,14 @@ where
     pub fn new(bytes: B) -> Self {
         Self { bytes }
     }
+}
 
-    pub fn iter_deltas(&self) -> RawDeltaIter<'_> {
+impl<'a> RawDeltaSet<&'a [u8]> {
+    pub fn iter_deltas(&self) -> RawDeltaIter<'a> {
         RawDeltaIter {
             bytes: &self.bytes,
             offset: 0,
         }
-    }
-
-    pub fn iter_deltas_into_ivecs(&self) -> impl '_ + Iterator<Item = Delta<IVec>> {
-        self.iter_deltas()
-            .map(|raw| Delta::from(&raw).map(|bytes| IVec::from(*bytes)))
     }
 }
 
@@ -61,6 +57,7 @@ impl<'a> Iterator for RawDeltaIter<'a> {
 mod test {
     use super::*;
 
+    use crate::Delta;
     use sled::IVec;
 
     #[test]
@@ -79,7 +76,7 @@ mod test {
         let raw_deltas = RawDeltaSet::new(bytes.as_ref());
         let decoded_deltas: Vec<_> = raw_deltas
             .iter_deltas()
-            .map(|d| Delta::from(&d).map(|b| IVec::from(*b)))
+            .map(|d| Delta::<&[u8]>::from(&d).map(|b| IVec::from(*b)))
             .collect();
 
         assert_eq!(decoded_deltas, deltas);

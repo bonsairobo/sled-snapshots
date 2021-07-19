@@ -88,6 +88,7 @@ use sled::Db;
 
 mod delta;
 mod delta_map;
+mod delta_node;
 mod delta_set;
 mod version_forest;
 mod version_node;

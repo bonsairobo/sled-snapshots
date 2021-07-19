@@ -1,5 +1,6 @@
 use crate::usize_from_be_slice;
 
+use sled::IVec;
 use std::io;
 use std::mem;
 use std::ops::{Deref, Range};
@@ -58,6 +59,15 @@ where
         } else {
             Delta::Insert(raw.key_slice(), raw.value_slice())
         }
+    }
+}
+
+impl<'a, B> From<&'a RawDelta<B>> for Delta<IVec>
+where
+    B: Deref<Target = [u8]>,
+{
+    fn from(raw: &'a RawDelta<B>) -> Self {
+        Delta::<&[u8]>::from(raw).map(|bytes| IVec::from(*bytes))
     }
 }
 

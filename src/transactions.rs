@@ -4,7 +4,9 @@ use crate::{delta::Delta, TransactionalDeltaMap, TransactionalVersionForest, Ver
 
 use itertools::Itertools;
 use sled::{
-    transaction::{abort, ConflictableTransactionResult, TransactionalTree},
+    transaction::{
+        abort, ConflictableTransactionResult, TransactionalTree, UnabortableTransactionError,
+    },
     IVec,
 };
 
@@ -49,9 +51,9 @@ pub fn create_child_snapshot(
     let child_version = forest.create_version(Some(parent_version))?;
 
     if make_current {
-        delta_map.insert(&parent_version.to_be_bytes(), &[])?;
+        delta_map.create_empty_version(parent_version)?;
     } else {
-        delta_map.insert(&child_version.to_be_bytes(), &[])?;
+        delta_map.create_empty_version(child_version)?;
     }
 
     Ok(child_version)
@@ -66,7 +68,7 @@ pub fn modify_leaf_snapshot(
     version: u64,
     forest: TransactionalVersionForest,
     delta_map: TransactionalDeltaMap,
-    deltas: &[Delta<IVec>],
+    deltas: &[Delta<&[u8]>],
 ) -> ConflictableTransactionResult<()> {
     if !forest.is_leaf(version)? || delta_map.is_current_version(version)? {
         return abort(());
@@ -99,11 +101,11 @@ pub fn modify_current_leaf_snapshot(
     if !forest.is_leaf(current_version)? || !delta_map.is_current_version(current_version)? {
         return abort(());
     }
-    if let Some(parent) = forest.parent_of(current_version)? {
+    if let Some(parent_version) = forest.parent_of(current_version)? {
         let mut reverse_deltas = Vec::new();
         apply_deltas(deltas.iter().cloned(), data_tree, &mut reverse_deltas)?;
         reverse_deltas.reverse();
-        delta_map.prepend_deltas(parent, &reverse_deltas)?;
+        delta_map.prepend_deltas(parent_version, &reverse_deltas)?;
     }
 
     Ok(())
@@ -125,7 +127,8 @@ pub fn create_child_snapshot_with_deltas(
 
     let mut reverse_deltas = Vec::new();
     apply_deltas(deltas.iter().cloned(), data_tree, &mut reverse_deltas)?;
-    delta_map.write_deltas(current_version, reverse_deltas.iter().rev())?;
+    reverse_deltas.reverse();
+    delta_map.create_version_with_deltas(current_version, reverse_deltas)?;
 
     Ok(child_version)
 }
@@ -194,14 +197,27 @@ fn nudge_version(
     delta_map: TransactionalDeltaMap,
     data_tree: &TransactionalTree,
 ) -> ConflictableTransactionResult<()> {
-    let deltas = delta_map.remove_version(target_version)?.unwrap();
+    // Gather up all of the raw deltas in the target version.
+    let raw_delta_nodes = delta_map
+        .remove_version(target_version)?
+        .expect("Version already found in transaction");
+    let mut deltas = Vec::new();
+    for node in raw_delta_nodes.iter() {
+        let delta_set = node.deltas();
+        for delta in delta_set.iter_deltas() {
+            deltas.push(delta);
+        }
+    }
+
     let mut reverse_deltas = Vec::new();
     apply_deltas(
-        deltas.iter_deltas_into_ivecs(),
+        deltas.iter().map(|raw| Delta::<IVec>::from(raw)),
         data_tree,
         &mut reverse_deltas,
     )?;
-    delta_map.write_deltas(current_version, reverse_deltas.iter().rev())
+    reverse_deltas.reverse();
+    delta_map.create_version_with_deltas(current_version, reverse_deltas)?;
+    Ok(())
 }
 
 /// Applies `deltas` to `data_tree` and adds the corresponding reverse deltas to `reverse_deltas`. Note that this only reverses
@@ -211,7 +227,7 @@ fn apply_deltas(
     deltas: impl Iterator<Item = Delta<IVec>>,
     data_tree: &TransactionalTree,
     reverse_deltas: &mut Vec<Delta<IVec>>,
-) -> ConflictableTransactionResult<()> {
+) -> Result<(), UnabortableTransactionError> {
     for delta in deltas {
         let (key, old_value) = match delta {
             Delta::Insert(key, value) => (key.clone(), data_tree.insert(key, value)?),
@@ -278,20 +294,21 @@ pub fn delete_snapshot(
         .expect("Version already found in transaction");
 
     // Move the deltas.
-    let deltas = delta_map
+    let raw_delta_nodes = delta_map
         .remove_version(version)?
         .expect("Version already found in transaction");
 
     if current_is_ancestor {
         // Move the deltas to every child.
-        for &child in rm_node.children.iter() {
-            delta_map.prepend_encoded_deltas(child, deltas.bytes.clone())?;
+        let node_clones = vec![raw_delta_nodes; rm_node.children.len()];
+        for (&child, raw_delta_nodes) in rm_node.children.iter().zip(node_clones.into_iter()) {
+            delta_map.prepend_raw_delta_nodes(child, raw_delta_nodes)?;
         }
     } else {
         // Move the deltas to the parent.
-        delta_map.prepend_encoded_deltas(
+        delta_map.prepend_raw_delta_nodes(
             rm_node.parent.expect("Deleting a root is forbidden"),
-            deltas.bytes,
+            raw_delta_nodes,
         )?;
     }
 
@@ -517,6 +534,13 @@ mod test {
 
     fn assert_contents(data_tree: &sled::Tree, expected_kvs: Vec<(IVec, IVec)>) {
         let kvs = data_tree.iter().collect::<Result<Vec<_>, _>>().unwrap();
+        for (key, value) in kvs.iter() {
+            println!(
+                "{}: {}",
+                std::str::from_utf8(key).unwrap(),
+                std::str::from_utf8(value).unwrap()
+            );
+        }
         assert_eq!(kvs, expected_kvs);
     }
 
