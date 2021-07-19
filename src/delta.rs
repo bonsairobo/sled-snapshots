@@ -62,11 +62,11 @@ where
     }
 }
 
-impl<'a, B> From<&'a RawDelta<B>> for Delta<IVec>
+impl<B> From<&RawDelta<B>> for Delta<IVec>
 where
     B: Deref<Target = [u8]>,
 {
-    fn from(raw: &'a RawDelta<B>) -> Self {
+    fn from(raw: &RawDelta<B>) -> Self {
         Delta::<&[u8]>::from(raw).map(|bytes| IVec::from(*bytes))
     }
 }

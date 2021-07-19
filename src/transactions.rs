@@ -211,7 +211,7 @@ fn nudge_version(
 
     let mut reverse_deltas = Vec::new();
     apply_deltas(
-        deltas.iter().map(|raw| Delta::<IVec>::from(raw)),
+        deltas.iter().map(Delta::<IVec>::from),
         data_tree,
         &mut reverse_deltas,
     )?;
