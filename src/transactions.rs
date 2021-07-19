@@ -102,9 +102,7 @@ pub fn modify_current_leaf_snapshot(
         return abort(());
     }
     if let Some(parent_version) = forest.parent_of(current_version)? {
-        let mut reverse_deltas = Vec::new();
-        apply_deltas(deltas.iter().cloned(), data_tree, &mut reverse_deltas)?;
-        reverse_deltas.reverse();
+        let reverse_deltas = apply_deltas(deltas.iter().cloned(), data_tree)?;
         delta_map.prepend_deltas(parent_version, &reverse_deltas)?;
     }
 
@@ -125,9 +123,7 @@ pub fn create_child_snapshot_with_deltas(
 
     let child_version = forest.create_version(Some(current_version))?;
 
-    let mut reverse_deltas = Vec::new();
-    apply_deltas(deltas.iter().cloned(), data_tree, &mut reverse_deltas)?;
-    reverse_deltas.reverse();
+    let reverse_deltas = apply_deltas(deltas.iter().cloned(), data_tree)?;
     delta_map.create_version_with_deltas(current_version, reverse_deltas)?;
 
     Ok(child_version)
@@ -209,25 +205,17 @@ fn nudge_version(
         }
     }
 
-    let mut reverse_deltas = Vec::new();
-    apply_deltas(
-        deltas.iter().map(Delta::<IVec>::from),
-        data_tree,
-        &mut reverse_deltas,
-    )?;
-    reverse_deltas.reverse();
+    let reverse_deltas = apply_deltas(deltas.iter().map(Delta::<IVec>::from), data_tree)?;
     delta_map.create_version_with_deltas(current_version, reverse_deltas)?;
     Ok(())
 }
 
-/// Applies `deltas` to `data_tree` and adds the corresponding reverse deltas to `reverse_deltas`. Note that this only reverses
-/// each individual delta, but the order of the deltas stays the same. You may need to reverse the order of the deltas depending
-/// on the situation.
+/// Applies `deltas` to `data_tree` and adds the corresponding reverse deltas to `reverse_deltas`.
 fn apply_deltas(
     deltas: impl Iterator<Item = Delta<IVec>>,
     data_tree: &TransactionalTree,
-    reverse_deltas: &mut Vec<Delta<IVec>>,
-) -> Result<(), UnabortableTransactionError> {
+) -> Result<Vec<Delta<IVec>>, UnabortableTransactionError> {
+    let mut reverse_deltas = Vec::new();
     for delta in deltas {
         let (key, old_value) = match delta {
             Delta::Insert(key, value) => (key.clone(), data_tree.insert(key, value)?),
@@ -239,7 +227,8 @@ fn apply_deltas(
             reverse_deltas.push(Delta::Remove(key.clone()));
         }
     }
-    Ok(())
+    reverse_deltas.reverse();
+    Ok(reverse_deltas)
 }
 
 /// Deletes the snapshot at `version`.
