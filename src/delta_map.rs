@@ -66,11 +66,6 @@ impl<'a> TransactionalDeltaMap<'a> {
         Ok(())
     }
 
-    /// Returns `true` iff `version` is the (unique) current version in its tree.
-    pub fn is_current_version(&self, version: u64) -> ConflictableTransactionResult<bool> {
-        Ok(self.get_delta_list_head(version)?.is_none())
-    }
-
     pub(crate) fn get_delta_list_head(
         &self,
         version: u64,

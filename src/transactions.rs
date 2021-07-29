@@ -25,6 +25,22 @@ pub fn create_snapshot_tree(
     forest.create_version(None)
 }
 
+/// Returns `true` iff `version` is the (unique) current version in its tree.
+///
+/// # Implementation Details
+/// True iff `version` exists in the `VersionForest` and has no entry in the `DeltaMap`. Aborts the transaction if `version`
+/// does not exist in `VersionForest`.
+pub fn is_current_version(
+    version: u64,
+    forest: TransactionalVersionForest,
+    delta_map: TransactionalDeltaMap,
+) -> ConflictableTransactionResult<bool> {
+    if !forest.get_version(version)?.is_some() {
+        return abort(());
+    }
+    Ok(delta_map.get_delta_list_head(version)?.is_none())
+}
+
 /// Creates a child of `parent_version` and returns the version. The new snapshot is identical to the parent, i.e. there are no
 /// deltas yet.
 ///
@@ -44,7 +60,7 @@ pub fn create_child_snapshot(
     forest: TransactionalVersionForest,
     delta_map: TransactionalDeltaMap,
 ) -> ConflictableTransactionResult<u64> {
-    if make_current && !delta_map.is_current_version(parent_version)? {
+    if make_current && !is_current_version(parent_version, forest, delta_map)? {
         return abort(());
     }
 
@@ -70,7 +86,7 @@ pub fn modify_leaf_snapshot(
     delta_map: TransactionalDeltaMap,
     deltas: &[Delta<&[u8]>],
 ) -> ConflictableTransactionResult<()> {
-    if !forest.is_leaf(version)? || delta_map.is_current_version(version)? {
+    if !forest.is_leaf(version)? || is_current_version(version, forest, delta_map)? {
         return abort(());
     }
     delta_map.append_deltas(version, deltas)
@@ -98,7 +114,8 @@ pub fn modify_current_leaf_snapshot(
     data_tree: &TransactionalTree,
     deltas: &[Delta<IVec>],
 ) -> ConflictableTransactionResult<()> {
-    if !forest.is_leaf(current_version)? || !delta_map.is_current_version(current_version)? {
+    if !forest.is_leaf(current_version)? || !is_current_version(current_version, forest, delta_map)?
+    {
         return abort(());
     }
     if let Some(parent_version) = forest.parent_of(current_version)? {
@@ -117,7 +134,7 @@ pub fn create_child_snapshot_with_deltas(
     data_tree: &TransactionalTree,
     deltas: &[Delta<IVec>],
 ) -> ConflictableTransactionResult<u64> {
-    if !delta_map.is_current_version(current_version)? {
+    if !is_current_version(current_version, forest, delta_map)? {
         return abort(());
     }
 
@@ -166,7 +183,7 @@ pub fn set_current_version(
     data_tree: &TransactionalTree,
 ) -> ConflictableTransactionResult<()> {
     // Make sure this is actually the current version.
-    if !delta_map.is_current_version(current_version)? {
+    if !is_current_version(current_version, forest, delta_map)? {
         return abort(());
     }
 
@@ -263,7 +280,7 @@ pub fn delete_snapshot(
     delta_map: TransactionalDeltaMap,
 ) -> ConflictableTransactionResult<()> {
     // Make sure we don't delete the current version.
-    if delta_map.is_current_version(version)? {
+    if is_current_version(version, forest, delta_map)? {
         return abort(());
     }
 
@@ -271,7 +288,7 @@ pub fn delete_snapshot(
     let mut current_is_ancestor = false;
     let path_to_root = forest.find_path_to_root(version)?;
     for &v in &path_to_root[1..] {
-        if delta_map.is_current_version(v)? {
+        if is_current_version(v, forest, delta_map)? {
             current_is_ancestor = true;
             break;
         }
