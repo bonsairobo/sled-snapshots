@@ -121,6 +121,17 @@ pub fn modify_current_leaf_snapshot(
     if let Some(parent_version) = forest.parent_of(current_version)? {
         let reverse_deltas = apply_deltas(deltas.iter().cloned(), data_tree)?;
         delta_map.prepend_deltas(parent_version, &reverse_deltas)?;
+    } else {
+        for delta in deltas {
+            match delta {
+                Delta::Insert(key, value) => {
+                    data_tree.insert(key, value)?;
+                }
+                Delta::Remove(key) => {
+                    data_tree.remove(key)?;
+                }
+            }
+        }
     }
 
     Ok(())
