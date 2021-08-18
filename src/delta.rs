@@ -22,13 +22,13 @@ where
             Delta::Insert(key, value) => {
                 writer.write_all(&key.len().to_be_bytes())?;
                 writer.write_all(&value.len().to_be_bytes())?;
-                writer.write_all(&key)?;
-                writer.write_all(&value)?;
+                writer.write_all(key)?;
+                writer.write_all(value)?;
             }
             Delta::Remove(key) => {
                 writer.write_all(&key.len().to_be_bytes())?;
                 writer.write_all(&0u64.to_be_bytes())?; // 0 num_value_bytes implies Remove
-                writer.write_all(&key)?;
+                writer.write_all(key)?;
             }
         }
         Ok(())

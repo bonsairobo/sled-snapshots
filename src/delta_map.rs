@@ -40,7 +40,7 @@ impl<'a> Deref for TransactionalDeltaMap<'a> {
     type Target = TransactionalTree;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0
     }
 }
 

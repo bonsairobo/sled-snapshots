@@ -5,28 +5,28 @@ Make versioned updates to a [sled::Tree], leaving behind incremental backups cal
 ## Usage Overview
 
 All functionality is provided by a persistent data structure called a "snapshot forest". Each tree in the forest represents
-multiple branching timelines of changes made to a single [sled::Tree] called the "data tree". Create a new tree in the
-forest with [create_snapshot_tree](crate::transactions::create_snapshot_tree).
+multiple branching timelines of changes made to a single [`sled::Tree`] called the "data tree". Create a new tree in the
+forest with [`create_snapshot_tree`](crate::transactions::create_snapshot_tree).
 
-You are free to provide any [sled::Tree] as the root version of a tree, but once more snapshots are created, you must use
-one of the functions in the [transactions] module to update your data tree; **manual updates to your data tree void the
+You are free to provide any [`sled::Tree`] as the root version of a tree, but once more snapshots are created, you must use
+one of the functions in the [`transactions`] module to update your data tree; **manual updates to your data tree void the
 warranty** (your data tree will get out of sync with the snapshot tree).
 
 Each snapshot tree has a "current" version which indicates the current state of your data tree. By calling
-[set_current_version](crate::transactions::set_current_version), you can restore the state of your data tree to that of any
+[`set_current_version`](crate::transactions::set_current_version), you can restore the state of your data tree to that of any
 snapshot. If the current version has no children, you can modify it as much as you want with
-[modify_current_leaf_snapshot](crate::transactions::modify_current_leaf_snapshot). Once you want to freeze the state of the
-current version, create a child snapshot with [create_child_snapshot](crate::transactions::create_child_snapshot).
+[`modify_current_leaf_snapshot`](crate::transactions::modify_current_leaf_snapshot). Once you want to freeze the state of the
+current version, create a child snapshot with [`create_child_snapshot`](crate::transactions::create_child_snapshot).
 
-All operations on the forest are transactional. See the [transactions] module for all supported operations on a snapshot
+All operations on the forest are transactional. See the [`transactions`] module for all supported operations on a snapshot
 forest. Note that none of these operations will flush for you!
 
 ## Implementation
 
-The snapshot forest is implemented on top of two [sled::Tree]s. One is the [VersionForest] which stores the version [u64] of
-every snapshot as a vertex in a bidirectional graph, specifically a tree. The other is the [DeltaMap], which stores a set of
-deltas for each snapshot. This enables snapshots to take up relatively little space, only remembering what changes between
-each version.
+The snapshot forest is implemented on top of two [`sled::Tree`]s. One is the [`VersionForest`] which stores the version
+[`u64`] of every snapshot as a vertex in a bidirectional graph, specifically a tree. The other is the [`DeltaMap`], which
+stores a set of deltas for each snapshot. This enables snapshots to take up relatively little space, only remembering what
+changes between each version.
 
 ## Example
 

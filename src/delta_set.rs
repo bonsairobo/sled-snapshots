@@ -22,7 +22,7 @@ where
 impl<'a> RawDeltaSet<&'a [u8]> {
     pub fn iter_deltas(&self) -> RawDeltaIter<'a> {
         RawDeltaIter {
-            bytes: &self.bytes,
+            bytes: self.bytes,
             offset: 0,
         }
     }

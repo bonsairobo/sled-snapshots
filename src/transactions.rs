@@ -35,7 +35,7 @@ pub fn is_current_version(
     forest: TransactionalVersionForest,
     delta_map: TransactionalDeltaMap,
 ) -> ConflictableTransactionResult<bool> {
-    if !forest.get_version(version)?.is_some() {
+    if forest.get_version(version)?.is_none() {
         return abort(());
     }
     Ok(delta_map.get_delta_list_head(version)?.is_none())

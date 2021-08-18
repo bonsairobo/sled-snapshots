@@ -43,7 +43,7 @@ impl<'a> Deref for TransactionalVersionForest<'a> {
     type Target = TransactionalTree;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0
     }
 }
 
